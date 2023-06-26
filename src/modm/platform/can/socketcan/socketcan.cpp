@@ -39,12 +39,16 @@ bool
 modm::platform::SocketCan::open(std::string deviceName)
 {
 	close();
+	int enable_canfd=1;
 
 	skt = socket(PF_CAN, SOCK_RAW, CAN_RAW);
 	if (skt == -1) {
 		MODM_LOG_ERROR << MODM_FILE_INFO;
 		MODM_LOG_ERROR << "Could not create CAN socket: " << strerror(errno) << modm::endl;
 		return false;
+	}
+	if(setsockopt(skt,SOL_CAN_RAW,CAN_RAW_FD_FRAMES,&enable_canfd,sizeof(enable_canfd))){
+		MODM_LOG_ERROR << "Error when enabling CANFD support" <<modm::endl;
 	}
 
 	/* Locate the interface you wish to use */
@@ -119,16 +123,17 @@ modm::platform::SocketCan::isMessageAvailable()
 bool
 modm::platform::SocketCan::getMessage(can::Message& message)
 {
-	struct can_frame frame;
-	int nbytes = recv(skt, &frame, sizeof(struct can_frame), MSG_DONTWAIT);
+	struct canfd_frame frame;
+	int nbytes = recv(skt, &frame, sizeof(struct canfd_frame), MSG_DONTWAIT);
 
 	if (nbytes > 0)
 	{
 		message.identifier = frame.can_id;
-		message.setDataLengthCode(frame.can_dlc);
+//		message.setDataLengthCode(frame.can_dlc);
+		message.setLength(frame.len);
 		message.setExtended(frame.can_id & CAN_EFF_FLAG);
 		message.setRemoteTransmitRequest(frame.can_id & CAN_RTR_FLAG);
-		for (uint8_t ii = 0; ii < frame.can_dlc; ++ii) {
+		for (uint8_t ii = 0; ii < frame.len; ++ii) {
 			message.data[ii] = frame.data[ii];
 		}
 		return true;
@@ -139,7 +144,7 @@ modm::platform::SocketCan::getMessage(can::Message& message)
 bool
 modm::platform::SocketCan::sendMessage(const can::Message& message)
 {
-	struct can_frame frame;
+	struct canfd_frame frame;
 
 	frame.can_id = message.identifier;
 	if (message.isExtended()) {
@@ -149,7 +154,7 @@ modm::platform::SocketCan::sendMessage(const can::Message& message)
 		frame.can_id |= CAN_RTR_FLAG;
 	}
 
-	frame.can_dlc = message.getLength();
+	frame.len = message.getLength();
 
 	for (uint8_t ii = 0; ii < message.getLength(); ++ii) {
 		frame.data[ii] = message.data[ii];
